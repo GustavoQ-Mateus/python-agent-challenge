@@ -1,29 +1,40 @@
-from pydantic import BaseModel,ConfigDict,Field,field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-class messageRequest(BaseModel):
+
+class MessageRequest(BaseModel):
     message: str = Field(..., min_length=1)
-    session_id: str | None = Field(default=None,min_length=1,max_length=128)
-    @Field_validator("message")
+    session_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+    @field_validator("message")
+    @classmethod
     def validate_message(cls, value: str) -> str:
         message = value.strip()
         if not message:
             raise ValueError("message must not be empty")
         return message
-    @Field_validator("session_id")
+
+    @field_validator("session_id")
     @classmethod
     def validate_session_id(cls, value: str | None) -> str | None:
         if value is None:
             return None
+
         session_id = value.strip()
         if not session_id:
             raise ValueError("session_id must not be empty")
         return session_id
 
+    model_config = ConfigDict(extra="forbid")
+
+
 class Source(BaseModel):
     section: str
+
     model_config = ConfigDict(extra="forbid")
+
 
 class MessageResponse(BaseModel):
     answer: str
     sources: list[Source]
+
     model_config = ConfigDict(extra="forbid")
