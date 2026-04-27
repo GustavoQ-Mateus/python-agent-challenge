@@ -1,0 +1,23 @@
+# Local environment
+.env
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local challenge material
+README2.md
+python_agent_knowledge_base.md
+
+# Editor/system
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
