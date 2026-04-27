@@ -1,6 +1,6 @@
 # Python Agent Challenge
 
-Backend em Python para responder perguntas usando uma base de conhecimento em Markdown, uma tool de contexto e um LLM no fluxo principal.
+API em Python feita para o desafio técnico TCE-CE
 
 ## Stack
 
@@ -13,7 +13,7 @@ Backend em Python para responder perguntas usando uma base de conhecimento em Ma
 
 ## Configuração
 
-Crie o arquivo `.env` a partir do exemplo:
+Crie o `.env` a partir do arquivo de exemplo:
 
 ```bash
 cp .env.example .env
@@ -29,27 +29,27 @@ LLM_BASE_URL=https://api.openai.com/v1
 LLM_API_KEY=
 ```
 
-`KB_URL` deve apontar para a base oficial do desafio. A chave do LLM deve ficar apenas no `.env` local.
+O `KB_URL` aponta para a base oficial do desafio. A chave do provedor de LLM fica somente no `.env` local.
 
-## Execução
+## Rodando o projeto
 
 ```bash
 docker compose up -d --build
 ```
 
-A API fica disponível em:
+A API sobe em:
 
 ```text
 http://localhost:8000
 ```
 
-Swagger:
+A documentação automática do FastAPI fica em:
 
 ```text
 http://localhost:8000/docs
 ```
 
-Para encerrar:
+Para parar:
 
 ```bash
 docker compose down
@@ -61,7 +61,7 @@ docker compose down
 POST /messages
 ```
 
-Entrada mínima:
+Exemplo de entrada:
 
 ```json
 {
@@ -69,7 +69,7 @@ Entrada mínima:
 }
 ```
 
-Entrada com sessão opcional:
+Também é possível enviar `session_id`:
 
 ```json
 {
@@ -78,7 +78,7 @@ Entrada com sessão opcional:
 }
 ```
 
-Resposta de sucesso:
+Resposta esperada quando existe contexto:
 
 ```json
 {
@@ -91,7 +91,7 @@ Resposta de sucesso:
 }
 ```
 
-Sem contexto suficiente:
+Resposta quando a KB não tem contexto suficiente:
 
 ```json
 {
@@ -100,13 +100,42 @@ Sem contexto suficiente:
 }
 ```
 
-## Validação teste via DOCKER
+## Como o fluxo foi organizado
 
-Os comandos abaixo foram executados com a API rodando via Docker. Eles não acionam o LLM, porque usam perguntas sem contexto suficiente ou entrada inválida.
+O endpoint só recebe e valida a entrada. Depois disso, o fluxo fica no orquestrador:
 
-### teste fora do escopo
+1. recebe a mensagem;
+2. chama a tool de conhecimento;
+3. a tool busca a KB por HTTP usando `KB_URL`;
+4. o orquestrador monta pergunta + contexto;
+5. o cliente de LLM gera a resposta;
+6. a API retorna `answer` e `sources`.
 
-Comando:
+Algumas regras que guiam o fluxo:
+
+- a tool não responde diretamente ao usuário;
+- o LLM sintetiza a resposta, mas não é usado como fonte primária;
+- se a busca não encontra contexto suficiente, o fallback é retornado sem chamar o LLM;
+- `sources` mostra apenas as seções realmente usadas como contexto;
+- cada item de `sources` contém somente `section`.
+
+## Memória de sessão
+
+`session_id` é opcional.
+
+Sem `session_id`, cada chamada é independente. Com `session_id`, a aplicação mantém um histórico curto em memória, com limite de turnos e TTL. As sessões ficam isoladas entre si.
+
+## Testes
+
+```bash
+python -m pytest -q
+```
+
+## Teste - Validação via Docker
+
+Os comandos abaixo foram executados com a API rodando no Docker. Eles foram escolhidos para validar contrato e fallback sem acionar o LLM.
+
+### Teste - Pergunta fora do escopo
 
 ```bash
 curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "http://localhost:8000/messages" \
@@ -114,16 +143,14 @@ curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "http://localhost:8000/message
   -d '{"message":"Qual a capital da Franca?"}'
 ```
 
-Resposta retornada:
+Retorno:
 
 ```json
 {"answer":"Não encontrei informação suficiente na base para responder essa pergunta.","sources":[]}
 HTTP_STATUS:200
 ```
 
-### teste fora do conhecimento
-
-Comando:
+### Teste - Pergunta fora da KB
 
 ```bash
 curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "http://localhost:8000/messages" \
@@ -131,16 +158,14 @@ curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "http://localhost:8000/message
   -d '{"message":"Pergunta fora do escopo da KB"}'
 ```
 
-Resposta retornada:
+Retorno:
 
 ```json
 {"answer":"Não encontrei informação suficiente na base para responder essa pergunta.","sources":[]}
 HTTP_STATUS:200
 ```
 
-### teste vazio
-
-Comando:
+### Teste - Entrada inválida
 
 ```bash
 curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "http://localhost:8000/messages" \
@@ -148,41 +173,9 @@ curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "http://localhost:8000/message
   -d '{"message":"   "}'
 ```
 
-Resposta retornada:
+Retorno:
 
 ```json
 {"detail":[{"type":"value_error","loc":["body","message"],"msg":"Value error, message must not be empty","input":"   ","ctx":{"error":{}}}]}
 HTTP_STATUS:422
-```
-
-## Fluxo
-
-1. A API recebe `message` e valida a entrada.
-2. O orquestrador chama a tool de conhecimento.
-3. A tool busca a KB em Markdown via HTTP usando `KB_URL`.
-4. A tool retorna seções relevantes para o orquestrador.
-5. O orquestrador monta pergunta + contexto e chama o LLM.
-6. A API retorna `answer` e `sources`.
-
-## Regras de Decisão
-
-1. A tool é chamada para buscar contexto da KB antes da resposta final.
-2. O LLM sintetiza a resposta, mas não é a fonte primária da verdade.
-3. Se a tool não encontrar contexto suficiente, o fluxo retorna o fallback padrão.
-4. `sources` contém somente seções realmente enviadas como contexto.
-5. A tool não responde diretamente ao usuário final.
-
-## Memória De Sessão
-
-`session_id` é opcional.
-
-1. Sem `session_id`, cada chamada é independente.
-2. Com `session_id`, a aplicação mantém um histórico curto em memória.
-3. Cada sessão é isolada das demais.
-4. O histórico tem limite de turnos e TTL.
-
-## Testes
-
-```bash
-python -m pytest -q
 ```
