@@ -8,25 +8,51 @@ Backend em Python para responder perguntas usando uma base de conhecimento em Ma
 - FastAPI
 - Pydantic
 - HTTPX
-- OpenAI SDK compativel
+- OpenAI SDK compatível
 - Docker Compose
 
-## Configuracao
+## Configuração
 
-arquivo de env:
+Crie o arquivo `.env` a partir do exemplo:
 
 ```bash
 cp .env.example .env
 ```
 
-Configuração das variaveis no `.env`:
+Variáveis principais:
 
 ```env
 KB_URL=https://raw.githubusercontent.com/igortce/python-agent-challenge/refs/heads/main/python_agent_knowledge_base.md
 LLM_PROVIDER=openai
-LLM_MODEL=
+LLM_MODEL=gpt-4o-mini
 LLM_BASE_URL=https://api.openai.com/v1
 LLM_API_KEY=
+```
+
+`KB_URL` deve apontar para a base oficial do desafio. A chave do LLM deve ficar apenas no `.env` local.
+
+## Execução
+
+```bash
+docker compose up -d --build
+```
+
+A API fica disponível em:
+
+```text
+http://localhost:8000
+```
+
+Swagger:
+
+```text
+http://localhost:8000/docs
+```
+
+Para encerrar:
+
+```bash
+docker compose down
 ```
 
 ## Endpoint
@@ -34,19 +60,24 @@ LLM_API_KEY=
 ```http
 POST /messages
 ```
-Entrada minima:
+
+Entrada mínima:
+
 ```json
 {
   "message": "O que é composição?"
 }
 ```
-Entrada com sessao opcional:
+
+Entrada com sessão opcional:
+
 ```json
 {
   "message": "Pode resumir o que falamos?",
   "session_id": "sessao-123"
 }
 ```
+
 Resposta de sucesso:
 
 ```json
@@ -59,7 +90,9 @@ Resposta de sucesso:
   ]
 }
 ```
+
 Sem contexto suficiente:
+
 ```json
 {
   "answer": "Não encontrei informação suficiente na base para responder essa pergunta.",
@@ -67,35 +100,89 @@ Sem contexto suficiente:
 }
 ```
 
-## Ex
+## Validação teste via DOCKER
+
+Os comandos abaixo foram executados com a API rodando via Docker. Eles não acionam o LLM, porque usam perguntas sem contexto suficiente ou entrada inválida.
+
+### teste fora do escopo
+
+Comando:
+
 ```bash
-curl -X POST "http://localhost:8000/messages" \
+curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "http://localhost:8000/messages" \
   -H "Content-Type: application/json" \
-  -d '{"message":"O que é composição?"}'
+  -d '{"message":"Qual a capital da Franca?"}'
 ```
+
+Resposta retornada:
+
+```json
+{"answer":"Não encontrei informação suficiente na base para responder essa pergunta.","sources":[]}
+HTTP_STATUS:200
+```
+
+### teste fora do conhecimento
+
+Comando:
+
 ```bash
-curl -X POST "http://localhost:8000/messages" \
+curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "http://localhost:8000/messages" \
   -H "Content-Type: application/json" \
   -d '{"message":"Pergunta fora do escopo da KB"}'
 ```
 
+Resposta retornada:
+
+```json
+{"answer":"Não encontrei informação suficiente na base para responder essa pergunta.","sources":[]}
+HTTP_STATUS:200
+```
+
+### teste vazio
+
+Comando:
+
+```bash
+curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST "http://localhost:8000/messages" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"   "}'
+```
+
+Resposta retornada:
+
+```json
+{"detail":[{"type":"value_error","loc":["body","message"],"msg":"Value error, message must not be empty","input":"   ","ctx":{"error":{}}}]}
+HTTP_STATUS:422
+```
+
 ## Fluxo
+
 1. A API recebe `message` e valida a entrada.
 2. O orquestrador chama a tool de conhecimento.
 3. A tool busca a KB em Markdown via HTTP usando `KB_URL`.
-4. A tool retorna secoes relevantes para o orquestrador.
+4. A tool retorna seções relevantes para o orquestrador.
 5. O orquestrador monta pergunta + contexto e chama o LLM.
 6. A API retorna `answer` e `sources`.
-## Regras de decisao
-1. A tool e chamada para buscar contexto da KB antes da resposta final.
-2. O LLM sintetiza a resposta, mas nao e a fonte primaria da verdade.
-3. Se a tool nao encontrar contexto suficiente, o fluxo retorna o fallback padrao.
-4. `sources` contem somente secoes realmente enviadas como contexto.
-5. A tool nao responde diretamente ao usuario final.
-## Memoria de sessao
-`session_id` e opcional.
-1. Sem `session_id`, cada chamada e independente.
-2. Com `session_id`, a aplicacao mantem um historico curto em memoria.
-3. Cada sessao e isolada das demais.
-4. O historico tem limite de turnos e TTL.
 
+## Regras de Decisão
+
+1. A tool é chamada para buscar contexto da KB antes da resposta final.
+2. O LLM sintetiza a resposta, mas não é a fonte primária da verdade.
+3. Se a tool não encontrar contexto suficiente, o fluxo retorna o fallback padrão.
+4. `sources` contém somente seções realmente enviadas como contexto.
+5. A tool não responde diretamente ao usuário final.
+
+## Memória De Sessão
+
+`session_id` é opcional.
+
+1. Sem `session_id`, cada chamada é independente.
+2. Com `session_id`, a aplicação mantém um histórico curto em memória.
+3. Cada sessão é isolada das demais.
+4. O histórico tem limite de turnos e TTL.
+
+## Testes
+
+```bash
+python -m pytest -q
+```

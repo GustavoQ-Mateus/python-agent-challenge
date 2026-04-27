@@ -1,0 +1,10 @@
+.git
+.pytest_cache
+.venv
+.venv-linux
+__pycache__
+*.pyc
+
+.env
+README2.md
+python_agent_knowledge_base.md
